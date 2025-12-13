@@ -1,9 +1,4 @@
-# Binaries
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+
 mcp-chromedp-server
 
 # Test binary, built with `go test -c`
