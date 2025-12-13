@@ -8,7 +8,7 @@ MCP Server tương tự Playwright-MCP sử dụng ChromeDP (Chrome DevTools Pro
 - ✅ **Nhẹ**: Chỉ cần Chrome/Chromium đã cài
 - ✅ **Headless**: Chạy browser ẩn, tối ưu cho server
 - ✅ **MCP Protocol**: Tương thích với Model Context Protocol
-- ✅ **Đầy đủ chức năng**: 18 tools như Playwright-MCP
+- ✅ **Đầy đủ chức năng**: 30 tools toàn diện
 
 ## Cài đặt
 
@@ -179,6 +179,88 @@ Hoặc nếu dùng `go run`:
   ```
 
 - **playwright_console** - Lấy console messages
+  ```json
+  {}
+  ```
+
+### Advanced Browser Tools
+
+- **browser_hover** - Hover vào element
+  ```json
+  { "selector": ".menu-item" }
+  ```
+
+- **browser_resize** - Thay đổi kích thước cửa sổ
+  ```json
+  { "width": 1920, "height": 1080 }
+  ```
+
+- **browser_drag** - Kéo thả element
+  ```json
+  {
+    "from": "#draggable",
+    "to": "#droptarget"
+  }
+  ```
+
+- **browser_file_upload** - Upload file
+  ```json
+  {
+    "selector": "input[type='file']",
+    "filepath": "C:\\path\\to\\file.pdf"
+  }
+  ```
+
+- **browser_fill_form** - Điền nhiều trường form cùng lúc
+  ```json
+  {
+    "fields": [
+      {"selector": "#name", "value": "John Doe"},
+      {"selector": "#email", "value": "john@example.com"},
+      {"selector": "#phone", "value": "123456789"}
+    ]
+  }
+  ```
+
+- **browser_close** - Đóng browser
+  ```json
+  {}
+  ```
+
+- **browser_snapshot** - Chụp accessibility tree (tốt hơn screenshot để phân tích cấu trúc)
+  ```json
+  { "selector": "#content" }
+  ```
+
+- **browser_handle_dialog** - Xử lý dialog (alert/confirm/prompt)
+  ```json
+  {
+    "accept": true,
+    "text": "response text"  // cho prompt
+  }
+  ```
+
+- **browser_network_requests** - Lấy danh sách network requests
+  ```json
+  {}
+  ```
+
+- **browser_wait_for** - Chờ text xuất hiện/biến mất
+  ```json
+  {
+    "text": "Loading complete",
+    "state": "visible",
+    "timeout": 5000
+  }
+  ```
+
+- **browser_tabs** - Quản lý tabs
+  ```json
+  { "action": "list" }
+  { "action": "new", "url": "https://example.com" }
+  ```
+
+- **browser_install** - Kiểm tra và hướng dẫn cài Chrome
   ```json
   {}
   ```

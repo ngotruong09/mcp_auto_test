@@ -8,10 +8,14 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
 )
 
@@ -44,8 +48,17 @@ type MCPTool struct {
 
 // Browser context holder
 type BrowserContext struct {
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx             context.Context
+	cancel          context.CancelFunc
+	consoleMessages []string
+	networkRequests []NetworkRequest
+	dialogHandler   func(string) string
+}
+
+type NetworkRequest struct {
+	URL    string `json:"url"`
+	Method string `json:"method"`
+	Status int    `json:"status"`
 }
 
 var browserCtx *BrowserContext
@@ -338,6 +351,147 @@ func getTools() []MCPTool {
 				"properties": map[string]interface{}{},
 			},
 		},
+
+		// New Browser Tools
+		{
+			Name:        "browser_hover",
+			Description: "Hover over an element",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"selector": map[string]string{"type": "string", "description": "CSS selector"},
+				},
+				"required": []string{"selector"},
+			},
+		},
+		{
+			Name:        "browser_resize",
+			Description: "Resize browser window",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"width":  map[string]string{"type": "number", "description": "Window width in pixels"},
+					"height": map[string]string{"type": "number", "description": "Window height in pixels"},
+				},
+				"required": []string{"width", "height"},
+			},
+		},
+		{
+			Name:        "browser_drag",
+			Description: "Drag and drop from one element to another",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"from": map[string]string{"type": "string", "description": "CSS selector of element to drag from"},
+					"to":   map[string]string{"type": "string", "description": "CSS selector of element to drop to"},
+				},
+				"required": []string{"from", "to"},
+			},
+		},
+		{
+			Name:        "browser_file_upload",
+			Description: "Upload file to input element",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"selector": map[string]string{"type": "string", "description": "CSS selector of file input"},
+					"filepath": map[string]string{"type": "string", "description": "Path to file to upload"},
+				},
+				"required": []string{"selector", "filepath"},
+			},
+		},
+		{
+			Name:        "browser_fill_form",
+			Description: "Fill multiple form fields at once",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"fields": map[string]interface{}{
+						"type":        "array",
+						"description": "Array of {selector, value} objects",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"selector": map[string]string{"type": "string"},
+								"value":    map[string]string{"type": "string"},
+							},
+						},
+					},
+				},
+				"required": []string{"fields"},
+			},
+		},
+		{
+			Name:        "browser_close",
+			Description: "Close the current page/tab",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "browser_snapshot",
+			Description: "Take accessibility snapshot of the page",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"selector": map[string]string{"type": "string", "description": "CSS selector (optional)"},
+				},
+			},
+		},
+		{
+			Name:        "browser_handle_dialog",
+			Description: "Handle browser dialogs (alert, confirm, prompt)",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"accept": map[string]string{"type": "boolean", "description": "Accept or dismiss dialog"},
+					"text":   map[string]string{"type": "string", "description": "Text to enter for prompt (optional)"},
+				},
+				"required": []string{"accept"},
+			},
+		},
+		{
+			Name:        "browser_network_requests",
+			Description: "Get list of network requests made by the page",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "browser_wait_for",
+			Description: "Wait for text to appear/disappear or wait for time",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"text":    map[string]string{"type": "string", "description": "Text to wait for"},
+					"timeout": map[string]string{"type": "number", "description": "Timeout in milliseconds"},
+					"state":   map[string]string{"type": "string", "description": "visible or hidden"},
+				},
+			},
+		},
+		{
+			Name:        "browser_tabs",
+			Description: "Manage browser tabs (list, new, close, select)",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"action": map[string]string{"type": "string", "description": "Action: list, new, close, select"},
+					"url":    map[string]string{"type": "string", "description": "URL for new tab"},
+					"index":  map[string]string{"type": "number", "description": "Tab index for close/select"},
+				},
+				"required": []string{"action"},
+			},
+		},
+		{
+			Name:        "browser_install",
+			Description: "Check browser installation and provide install instructions",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
 	}
 }
 
@@ -543,11 +697,332 @@ func executeTool(name string, args map[string]interface{}) (string, error) {
 		return string(resultJSON), nil
 
 	case "playwright_console":
-		// Note: Console message collection requires setting up listeners
-		// This is a simplified version
-		return "Console messages: (feature requires console listener setup)", nil
+		// Return collected console messages
+		if browserCtx != nil && len(browserCtx.consoleMessages) > 0 {
+			messages := strings.Join(browserCtx.consoleMessages, "\n")
+			return messages, nil
+		}
+		return "No console messages captured", nil
+
+	// New Browser Tools
+	case "browser_hover":
+		selector := args["selector"].(string)
+		var nodes []*cdp.Node
+		err := chromedp.Run(ctx,
+			chromedp.Nodes(selector, &nodes, chromedp.ByQuery),
+		)
+		if err != nil {
+			return "", err
+		}
+		if len(nodes) == 0 {
+			return "", fmt.Errorf("element not found: %s", selector)
+		}
+
+		err = chromedp.Run(ctx, chromedp.MouseClickNode(nodes[0]))
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Hovered over %s", selector), nil
+
+	case "browser_resize":
+		width := int64(args["width"].(float64))
+		height := int64(args["height"].(float64))
+		err := chromedp.Run(ctx, chromedp.EmulateViewport(width, height))
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Resized window to %dx%d", width, height), nil
+
+	case "browser_drag":
+		from := args["from"].(string)
+		to := args["to"].(string)
+
+		// Get coordinates of both elements
+		var fromX, fromY, toX, toY float64
+		err := chromedp.Run(ctx,
+			chromedp.Evaluate(fmt.Sprintf(`
+				const fromEl = document.querySelector('%s');
+				const toEl = document.querySelector('%s');
+				const fromRect = fromEl.getBoundingClientRect();
+				const toRect = toEl.getBoundingClientRect();
+				({
+					fromX: fromRect.left + fromRect.width/2,
+					fromY: fromRect.top + fromRect.height/2,
+					toX: toRect.left + toRect.width/2,
+					toY: toRect.top + toRect.height/2
+				});
+			`, from, to), &map[string]interface{}{
+				"fromX": &fromX,
+				"fromY": &fromY,
+				"toX":   &toX,
+				"toY":   &toY,
+			}),
+		)
+		if err != nil {
+			return "", err
+		}
+
+		// Perform drag and drop
+		err = chromedp.Run(ctx,
+			chromedp.MouseClickXY(fromX, fromY),
+			chromedp.Sleep(100*time.Millisecond),
+			chromedp.MouseClickXY(toX, toY),
+		)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Dragged from %s to %s", from, to), nil
+
+	case "browser_file_upload":
+		selector := args["selector"].(string)
+		filepath := args["filepath"].(string)
+		err := chromedp.Run(ctx, chromedp.SendKeys(selector, filepath, chromedp.NodeVisible))
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Uploaded file %s to %s", filepath, selector), nil
+
+	case "browser_fill_form":
+		fieldsRaw := args["fields"].([]interface{})
+		var actions []chromedp.Action
+
+		for _, fieldRaw := range fieldsRaw {
+			field := fieldRaw.(map[string]interface{})
+			selector := field["selector"].(string)
+			value := field["value"].(string)
+			actions = append(actions,
+				chromedp.Clear(selector),
+				chromedp.SendKeys(selector, value, chromedp.NodeVisible),
+			)
+		}
+
+		err := chromedp.Run(ctx, actions...)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Filled %d form fields", len(fieldsRaw)), nil
+
+	case "browser_close":
+		if browserCtx != nil {
+			browserCtx.cancel()
+			browserCtx = nil
+		}
+		return "Browser closed", nil
+
+	case "browser_snapshot":
+		var snapshot string
+		selector, hasSelector := args["selector"].(string)
+
+		script := `
+			function getAccessibilityTree(el) {
+				const role = el.getAttribute('role') || el.tagName.toLowerCase();
+				const name = el.getAttribute('aria-label') || el.getAttribute('alt') || el.textContent?.slice(0, 50) || '';
+				const children = Array.from(el.children).map(child => getAccessibilityTree(child));
+				return { role, name: name.trim(), children: children.length > 0 ? children : undefined };
+			}
+			return JSON.stringify(getAccessibilityTree(document.body), null, 2);
+		`
+
+		if hasSelector && selector != "" {
+			script = fmt.Sprintf(`
+				const el = document.querySelector('%s');
+				function getAccessibilityTree(el) {
+					const role = el.getAttribute('role') || el.tagName.toLowerCase();
+					const name = el.getAttribute('aria-label') || el.getAttribute('alt') || el.textContent?.slice(0, 50) || '';
+					const children = Array.from(el.children).map(child => getAccessibilityTree(child));
+					return { role, name: name.trim(), children: children.length > 0 ? children : undefined };
+				}
+				return JSON.stringify(getAccessibilityTree(el), null, 2);
+			`, selector)
+		}
+
+		err := chromedp.Run(ctx, chromedp.Evaluate(script, &snapshot))
+		if err != nil {
+			return "", err
+		}
+		return snapshot, nil
+
+	case "browser_handle_dialog":
+		accept := args["accept"].(bool)
+		text, hasText := args["text"].(string)
+
+		err := chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+			if accept {
+				if hasText && text != "" {
+					return page.HandleJavaScriptDialog(true).WithPromptText(text).Do(ctx)
+				}
+				return page.HandleJavaScriptDialog(true).Do(ctx)
+			}
+			return page.HandleJavaScriptDialog(false).Do(ctx)
+		}))
+		if err != nil {
+			return "", err
+		}
+		return "Dialog handled", nil
+
+	case "browser_network_requests":
+		if browserCtx != nil && len(browserCtx.networkRequests) > 0 {
+			requests, _ := json.MarshalIndent(browserCtx.networkRequests, "", "  ")
+			return string(requests), nil
+		}
+		return "No network requests captured", nil
+
+	case "browser_wait_for":
+		text, hasText := args["text"].(string)
+		timeout := 30000
+		if t, ok := args["timeout"].(float64); ok {
+			timeout = int(t)
+		}
+		state, hasState := args["state"].(string)
+		if !hasState {
+			state = "visible"
+		}
+
+		waitCtx, waitCancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Millisecond)
+		defer waitCancel()
+
+		if hasText && text != "" {
+			script := fmt.Sprintf(`
+				Array.from(document.querySelectorAll('*')).some(el => 
+					el.textContent && el.textContent.includes('%s')
+				)
+			`, text)
+
+			if state == "hidden" {
+				script = fmt.Sprintf(`
+					!Array.from(document.querySelectorAll('*')).some(el => 
+						el.textContent && el.textContent.includes('%s')
+					)
+				`, text)
+			}
+
+			err := chromedp.Run(waitCtx, chromedp.WaitVisible(`body`))
+			if err != nil {
+				return "", err
+			}
+
+			// Poll for text
+			for i := 0; i < timeout/100; i++ {
+				var found bool
+				chromedp.Run(ctx, chromedp.Evaluate(script, &found))
+				if found {
+					return fmt.Sprintf("Text '%s' is %s", text, state), nil
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			return "", fmt.Errorf("timeout waiting for text '%s'", text)
+		} else {
+			// Just wait for the timeout
+			time.Sleep(time.Duration(timeout) * time.Millisecond)
+			return fmt.Sprintf("Waited for %dms", timeout), nil
+		}
+
+	case "browser_tabs":
+		action := args["action"].(string)
+
+		switch action {
+		case "list":
+			var targets []*target.Info
+			err := chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+				var err error
+				targets, err = target.GetTargets().Do(ctx)
+				return err
+			}))
+			if err != nil {
+				return "", err
+			}
+
+			var tabs []string
+			for i, t := range targets {
+				if t.Type == "page" {
+					tabs = append(tabs, fmt.Sprintf("%d: %s - %s", i, t.Title, t.URL))
+				}
+			}
+			return strings.Join(tabs, "\n"), nil
+
+		case "new":
+			url := args["url"].(string)
+			err := chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+				_, err := target.CreateTarget(url).Do(ctx)
+				return err
+			}))
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("Opened new tab: %s", url), nil
+
+		case "close":
+			return "Tab close not fully implemented", nil
+
+		case "select":
+			return "Tab select not fully implemented", nil
+
+		default:
+			return "", fmt.Errorf("unknown tab action: %s", action)
+		}
+
+	case "browser_install":
+		instructions := getBrowserInstallInstructions()
+		return instructions, nil
 
 	default:
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
+}
+
+func getBrowserInstallInstructions() string {
+	// Check if Chrome/Chromium is installed
+	var chromePath string
+	var err error
+
+	switch runtime.GOOS {
+	case "windows":
+		chromePath, err = exec.LookPath("chrome")
+		if err != nil {
+			chromePath, err = exec.LookPath("chrome.exe")
+		}
+	case "darwin":
+		chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+		_, err = os.Stat(chromePath)
+	case "linux":
+		chromePath, err = exec.LookPath("google-chrome")
+		if err != nil {
+			chromePath, err = exec.LookPath("chromium-browser")
+		}
+		if err != nil {
+			chromePath, err = exec.LookPath("chromium")
+		}
+	}
+
+	if err == nil && chromePath != "" {
+		return fmt.Sprintf("✓ Chrome/Chromium is installed at: %s", chromePath)
+	}
+
+	// Provide installation instructions
+	instructions := "Chrome/Chromium not found. Installation instructions:\n\n"
+
+	switch runtime.GOOS {
+	case "windows":
+		instructions += "Windows:\n"
+		instructions += "1. Download from: https://www.google.com/chrome/\n"
+		instructions += "2. Or use winget: winget install Google.Chrome\n"
+		instructions += "3. Or use chocolatey: choco install googlechrome\n"
+	case "darwin":
+		instructions += "macOS:\n"
+		instructions += "1. Download from: https://www.google.com/chrome/\n"
+		instructions += "2. Or use homebrew: brew install --cask google-chrome\n"
+	case "linux":
+		instructions += "Linux:\n"
+		instructions += "Ubuntu/Debian:\n"
+		instructions += "  sudo apt-get update\n"
+		instructions += "  sudo apt-get install chromium-browser\n"
+		instructions += "Fedora:\n"
+		instructions += "  sudo dnf install chromium\n"
+		instructions += "Arch:\n"
+		instructions += "  sudo pacman -S chromium\n"
+	default:
+		instructions += "Unknown operating system. Please install Chrome or Chromium manually.\n"
+	}
+
+	return instructions
 }

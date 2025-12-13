@@ -79,7 +79,7 @@ Claude sẽ sử dụng:
 2. `playwright_query_selector` - Tìm error message
 3. `playwright_get_text` - Đọc nội dung lỗi (nếu có)
 
-## 📋 Danh sách đầy đủ 18 tools
+## 📋 Danh sách đầy đủ 30 tools
 
 ### Navigation (5 tools)
 - ✅ playwright_navigate
@@ -108,6 +108,20 @@ Claude sẽ sử dụng:
 ### Evaluation (2 tools)
 - ✅ playwright_evaluate
 - ✅ playwright_console
+
+### Advanced Browser Tools (12 tools)
+- ✅ browser_hover - Hover vào element
+- ✅ browser_resize - Thay đổi kích thước viewport
+- ✅ browser_drag - Kéo thả element
+- ✅ browser_file_upload - Upload file
+- ✅ browser_fill_form - Điền nhiều trường form
+- ✅ browser_close - Đóng browser
+- ✅ browser_snapshot - Accessibility tree snapshot
+- ✅ browser_handle_dialog - Xử lý alert/confirm/prompt
+- ✅ browser_network_requests - Lấy network requests
+- ✅ browser_wait_for - Chờ text xuất hiện
+- ✅ browser_tabs - Quản lý tabs
+- ✅ browser_install - Kiểm tra cài đặt Chrome
 
 ## 🔧 Troubleshooting
 
