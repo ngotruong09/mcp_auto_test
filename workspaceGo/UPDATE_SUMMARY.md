@@ -7,6 +7,7 @@
 - **Tools mới:** +12 advanced browser tools
 - **File size:** 13.37 MB
 - **Build status:** ✅ Success
+- **Browser support:** ✅ Edge + Chrome + Chromium
 
 ### Tools đã bổ sung (12 tools mới)
 

@@ -5,17 +5,21 @@ MCP Server tương tự Playwright-MCP sử dụng ChromeDP (Chrome DevTools Pro
 ## Đặc điểm
 
 - ✅ **Pure Go**: Không cần Selenium server hay Node.js
-- ✅ **Nhẹ**: Chỉ cần Chrome/Chromium đã cài
+- ✅ **Nhẹ**: Chỉ cần Chrome/Chromium hoặc Microsoft Edge đã cài
 - ✅ **Headless**: Chạy browser ẩn, tối ưu cho server
 - ✅ **MCP Protocol**: Tương thích với Model Context Protocol
 - ✅ **Đầy đủ chức năng**: 30 tools toàn diện
+- ✅ **Multi-browser**: Tự động phát hiện Edge hoặc Chrome
 
 ## Cài đặt
 
 ### Yêu cầu
 
 1. Go 1.21 trở lên
-2. Chrome hoặc Chromium đã cài đặt
+2. Một trong các trình duyệt sau:
+   - **Microsoft Edge** (khuyến nghị cho Windows - thường đã cài sẵn)
+   - Google Chrome
+   - Chromium
 
 ### Build
 
@@ -304,22 +308,35 @@ Hãy:
 
 ## Troubleshooting
 
-### Chrome không tìm thấy
+### Browser không tìm thấy
 
-Nếu gặp lỗi không tìm thấy Chrome:
+Server tự động tìm kiếm theo thứ tự: **Edge → Chrome → Chromium**
 
-**Windows**: Cài Chrome hoặc set environment variable:
-```cmd
-set CHROME_BIN=C:\Program Files\Google\Chrome\Application\chrome.exe
-```
+Nếu gặp lỗi không tìm thấy browser:
 
-**Linux**: Cài chromium
+**Windows**: 
+- Edge thường đã cài sẵn trên Windows 10/11
+- Hoặc cài Chrome: https://www.google.com/chrome/
+- Hoặc dùng winget: `winget install Microsoft.Edge` hoặc `winget install Google.Chrome`
+
+**Linux**: Cài Edge hoặc Chromium
 ```bash
+# Edge
+curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg
+sudo install -o root -g root -m 644 microsoft.gpg /etc/apt/trusted.gpg.d/
+sudo sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/repos/edge stable main" > /etc/apt/sources.list.d/microsoft-edge.list'
+sudo apt update && sudo apt install microsoft-edge-stable
+
+# Hoặc Chromium
 sudo apt-get install chromium-browser
 ```
 
-**macOS**: Cài Chrome
+**macOS**: Cài Edge hoặc Chrome
 ```bash
+# Edge
+brew install --cask microsoft-edge
+
+# Hoặc Chrome
 brew install --cask google-chrome
 ```
 

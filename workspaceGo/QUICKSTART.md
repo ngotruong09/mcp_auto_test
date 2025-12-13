@@ -125,8 +125,11 @@ Claude sẽ sử dụng:
 
 ## 🔧 Troubleshooting
 
-### Lỗi "Chrome not found"
-Cài đặt Google Chrome: https://www.google.com/chrome/
+### Lỗi "Browser not found"
+Server tự động tìm Edge hoặc Chrome. Trên Windows 10/11, Edge đã cài sẵn.
+Nếu chưa có: 
+- Edge: https://www.microsoft.com/edge
+- Chrome: https://www.google.com/chrome/
 
 ### Lỗi "timeout"
 Element có thể load chậm, thử tăng timeout:
