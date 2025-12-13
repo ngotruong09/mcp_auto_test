@@ -497,16 +497,87 @@ func getTools() []MCPTool {
 
 func ensureBrowser() error {
 	if browserCtx == nil {
-		opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		// Try to find Edge or Chrome executable
+		execPath := findBrowserExecutable()
+
+		var opts []chromedp.ExecAllocatorOption
+		if execPath != "" {
+			opts = []chromedp.ExecAllocatorOption{
+				chromedp.ExecPath(execPath),
+			}
+		}
+
+		opts = append(opts,
 			chromedp.Flag("headless", true),
 			chromedp.Flag("disable-gpu", true),
 			chromedp.Flag("no-sandbox", true),
+			chromedp.Flag("disable-dev-shm-usage", true),
 		)
+
 		allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)
 		ctx, cancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
 		browserCtx = &BrowserContext{ctx: ctx, cancel: cancel}
 	}
 	return nil
+}
+
+func findBrowserExecutable() string {
+	var paths []string
+
+	switch runtime.GOOS {
+	case "windows":
+		// Microsoft Edge paths (prioritize Edge on Windows)
+		paths = []string{
+			os.Getenv("PROGRAMFILES") + "\\Microsoft\\Edge\\Application\\msedge.exe",
+			os.Getenv("PROGRAMFILES(X86)") + "\\Microsoft\\Edge\\Application\\msedge.exe",
+			os.Getenv("LOCALAPPDATA") + "\\Microsoft\\Edge\\Application\\msedge.exe",
+			// Chrome paths
+			os.Getenv("PROGRAMFILES") + "\\Google\\Chrome\\Application\\chrome.exe",
+			os.Getenv("PROGRAMFILES(X86)") + "\\Google\\Chrome\\Application\\chrome.exe",
+			os.Getenv("LOCALAPPDATA") + "\\Google\\Chrome\\Application\\chrome.exe",
+		}
+	case "darwin":
+		paths = []string{
+			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+		}
+	case "linux":
+		// Try to find in PATH
+		if path, err := exec.LookPath("microsoft-edge"); err == nil {
+			return path
+		}
+		if path, err := exec.LookPath("microsoft-edge-stable"); err == nil {
+			return path
+		}
+		if path, err := exec.LookPath("google-chrome"); err == nil {
+			return path
+		}
+		if path, err := exec.LookPath("chromium-browser"); err == nil {
+			return path
+		}
+		if path, err := exec.LookPath("chromium"); err == nil {
+			return path
+		}
+
+		paths = []string{
+			"/usr/bin/microsoft-edge",
+			"/usr/bin/microsoft-edge-stable",
+			"/usr/bin/google-chrome",
+			"/usr/bin/chromium-browser",
+			"/usr/bin/chromium",
+		}
+	}
+
+	// Check each path
+	for _, path := range paths {
+		if _, err := os.Stat(path); err == nil {
+			log.Printf("Found browser at: %s", path)
+			return path
+		}
+	}
+
+	// Return empty string to use default
+	return ""
 }
 
 func executeTool(name string, args map[string]interface{}) (string, error) {
@@ -971,57 +1042,120 @@ func executeTool(name string, args map[string]interface{}) (string, error) {
 }
 
 func getBrowserInstallInstructions() string {
-	// Check if Chrome/Chromium is installed
-	var chromePath string
-	var err error
+	// Check if Edge or Chrome/Chromium is installed
+	foundBrowsers := []string{}
 
 	switch runtime.GOOS {
 	case "windows":
-		chromePath, err = exec.LookPath("chrome")
-		if err != nil {
-			chromePath, err = exec.LookPath("chrome.exe")
+		// Check Edge
+		edgePaths := []string{
+			os.Getenv("PROGRAMFILES") + "\\Microsoft\\Edge\\Application\\msedge.exe",
+			os.Getenv("PROGRAMFILES(X86)") + "\\Microsoft\\Edge\\Application\\msedge.exe",
+			os.Getenv("LOCALAPPDATA") + "\\Microsoft\\Edge\\Application\\msedge.exe",
 		}
+		for _, path := range edgePaths {
+			if _, err := os.Stat(path); err == nil {
+				foundBrowsers = append(foundBrowsers, "Microsoft Edge at: "+path)
+				break
+			}
+		}
+
+		// Check Chrome
+		chromePaths := []string{
+			os.Getenv("PROGRAMFILES") + "\\Google\\Chrome\\Application\\chrome.exe",
+			os.Getenv("PROGRAMFILES(X86)") + "\\Google\\Chrome\\Application\\chrome.exe",
+			os.Getenv("LOCALAPPDATA") + "\\Google\\Chrome\\Application\\chrome.exe",
+		}
+		for _, path := range chromePaths {
+			if _, err := os.Stat(path); err == nil {
+				foundBrowsers = append(foundBrowsers, "Google Chrome at: "+path)
+				break
+			}
+		}
+
 	case "darwin":
-		chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-		_, err = os.Stat(chromePath)
-	case "linux":
-		chromePath, err = exec.LookPath("google-chrome")
-		if err != nil {
-			chromePath, err = exec.LookPath("chromium-browser")
+		// Check Edge
+		edgePath := "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
+		if _, err := os.Stat(edgePath); err == nil {
+			foundBrowsers = append(foundBrowsers, "Microsoft Edge at: "+edgePath)
 		}
-		if err != nil {
-			chromePath, err = exec.LookPath("chromium")
+
+		// Check Chrome
+		chromePath := "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+		if _, err := os.Stat(chromePath); err == nil {
+			foundBrowsers = append(foundBrowsers, "Google Chrome at: "+chromePath)
+		}
+
+	case "linux":
+		// Check Edge
+		if path, err := exec.LookPath("microsoft-edge"); err == nil {
+			foundBrowsers = append(foundBrowsers, "Microsoft Edge at: "+path)
+		} else if path, err := exec.LookPath("microsoft-edge-stable"); err == nil {
+			foundBrowsers = append(foundBrowsers, "Microsoft Edge at: "+path)
+		}
+
+		// Check Chrome/Chromium
+		if path, err := exec.LookPath("google-chrome"); err == nil {
+			foundBrowsers = append(foundBrowsers, "Google Chrome at: "+path)
+		} else if path, err := exec.LookPath("chromium-browser"); err == nil {
+			foundBrowsers = append(foundBrowsers, "Chromium at: "+path)
+		} else if path, err := exec.LookPath("chromium"); err == nil {
+			foundBrowsers = append(foundBrowsers, "Chromium at: "+path)
 		}
 	}
 
-	if err == nil && chromePath != "" {
-		return fmt.Sprintf("✓ Chrome/Chromium is installed at: %s", chromePath)
+	if len(foundBrowsers) > 0 {
+		result := "✓ Found browser(s):\n"
+		for _, browser := range foundBrowsers {
+			result += "  • " + browser + "\n"
+		}
+		return result
 	}
 
 	// Provide installation instructions
-	instructions := "Chrome/Chromium not found. Installation instructions:\n\n"
+	instructions := "⚠ No compatible browser found (Edge or Chrome/Chromium required)\n\n"
+	instructions += "Installation instructions:\n\n"
 
 	switch runtime.GOOS {
 	case "windows":
-		instructions += "Windows:\n"
-		instructions += "1. Download from: https://www.google.com/chrome/\n"
-		instructions += "2. Or use winget: winget install Google.Chrome\n"
-		instructions += "3. Or use chocolatey: choco install googlechrome\n"
+		instructions += "Windows:\n\n"
+		instructions += "Microsoft Edge (Recommended - pre-installed on Windows 10/11):\n"
+		instructions += "  • Already installed on Windows 10/11\n"
+		instructions += "  • Or download: https://www.microsoft.com/edge\n"
+		instructions += "  • Or use winget: winget install Microsoft.Edge\n\n"
+		instructions += "Google Chrome:\n"
+		instructions += "  • Download: https://www.google.com/chrome/\n"
+		instructions += "  • Or use winget: winget install Google.Chrome\n"
+		instructions += "  • Or use chocolatey: choco install googlechrome\n"
+
 	case "darwin":
-		instructions += "macOS:\n"
-		instructions += "1. Download from: https://www.google.com/chrome/\n"
-		instructions += "2. Or use homebrew: brew install --cask google-chrome\n"
+		instructions += "macOS:\n\n"
+		instructions += "Microsoft Edge:\n"
+		instructions += "  • Download: https://www.microsoft.com/edge\n"
+		instructions += "  • Or use homebrew: brew install --cask microsoft-edge\n\n"
+		instructions += "Google Chrome:\n"
+		instructions += "  • Download: https://www.google.com/chrome/\n"
+		instructions += "  • Or use homebrew: brew install --cask google-chrome\n"
+
 	case "linux":
-		instructions += "Linux:\n"
-		instructions += "Ubuntu/Debian:\n"
-		instructions += "  sudo apt-get update\n"
-		instructions += "  sudo apt-get install chromium-browser\n"
-		instructions += "Fedora:\n"
-		instructions += "  sudo dnf install chromium\n"
-		instructions += "Arch:\n"
-		instructions += "  sudo pacman -S chromium\n"
+		instructions += "Linux:\n\n"
+		instructions += "Microsoft Edge:\n"
+		instructions += "  Ubuntu/Debian:\n"
+		instructions += "    curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg\n"
+		instructions += "    sudo install -o root -g root -m 644 microsoft.gpg /etc/apt/trusted.gpg.d/\n"
+		instructions += "    sudo sh -c 'echo \"deb [arch=amd64] https://packages.microsoft.com/repos/edge stable main\" > /etc/apt/sources.list.d/microsoft-edge.list'\n"
+		instructions += "    sudo apt update && sudo apt install microsoft-edge-stable\n\n"
+		instructions += "Google Chrome/Chromium:\n"
+		instructions += "  Ubuntu/Debian:\n"
+		instructions += "    sudo apt-get update\n"
+		instructions += "    sudo apt-get install chromium-browser\n"
+		instructions += "  Fedora:\n"
+		instructions += "    sudo dnf install chromium\n"
+		instructions += "  Arch:\n"
+		instructions += "    sudo pacman -S chromium\n"
+
 	default:
-		instructions += "Unknown operating system. Please install Chrome or Chromium manually.\n"
+		instructions += "Unknown operating system. Please install Microsoft Edge or Chrome/Chromium manually.\n"
 	}
 
 	return instructions
